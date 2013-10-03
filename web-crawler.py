@@ -15,6 +15,8 @@
     This is because we believe it would be much more useful for our target users. For instance if carleton.edu
     is the prefix given, the search space for a prefix would be empty because urls are www.carleton.edu or apps.carleton.edu.
     If the user wants to search cs.carleton.edu for example our program still works as if it were a prefix.
+    
+    Last modified: 2013/10/3 17:08 by Jialun "Julian" Luo - note: still buggy, actions still needed
 '''
 
 import sys
@@ -23,52 +25,67 @@ import urllib2
 import argparse
 import time
 import urlparse
-
+import Queue
 
 class WebPage:
     '''
     Stores a URL and important information (e.g. HTML code, its children links, etc.)
     '''
-    def __init__(self, link, distance, p):
+    def __init__(self, link, distance, parentURL):
         '''
         @param link: the url of the web page
         @param distance: distance from home
-        @param p: the parent url from which the webpage was accessed  
+        @param parentURL: the parent url from which the webpage was accessed  
         '''
-        self.parentURL = p
+        self.parentURL = parentURL
         self.givenURL = link
         self.brokenLinks = []
-        self.distanceFromHome = distance
+        self.depth = distance
         self.pageHTML = self.readURL(self.givenURL)
         self.children = []
+        self.childPages = []
         if(self.pageHTML):
+            '''If it has children'''
             self.children = self.getAllHrefValues(self.pageHTML)
-            
+        self.parentPage = None
+    
+    def addChildPage(self, newChildWebPage):
+        self.childPages.append(newChildWebPage)
+    
+    def getChildPages(self):
+        return self.childPages
+        
+    def setParentPage(self, WebPage):
+        self.parentPage = WebPage
+        
+    def getParentPage(self):
+        return self.parentPage
+    
     def getParentURL(self):
         '''
         @return: the url from which this page was accessed
         '''
         return self.parentURL
     
-    def getGivenURL(self):
+    def getURL(self):
         '''
         @return: returns a string of the url for the web page
         '''
         return self.givenURL
     
-    def setDistanceFromHome(self, d):
+    def setDepth(self, depth):
         '''
-        @param d: the distance from home
+        @param depth: the distance from home
         '''
-        self.distanceFromHome = d
+        self.depth = depth
         
-    def getDistanceFromHome(self):
+    def getDepth(self):
         '''
         @return: the distance from the home page in a given path(not necessarily the shortest possible path)
         '''
-        return self.distanceFromHome
+        return self.depth
     
-    def getChildren(self):
+    def getChildURLs(self):
         '''
         @return: list children links from the given url
         '''
@@ -110,8 +127,7 @@ class WebPage:
         @param parent: link from which the broken link was taken
         '''
         t = brokenLink, parent
-        self.brokenLinks.append(t)
-        
+        self.brokenLinks.append(t)        
 
 class WebCrawler:
     '''
@@ -125,6 +141,7 @@ class WebCrawler:
         @param linksToVisit: number of links to visit during the crawl
         '''
         self.homeURL = homeURL
+        self.homePage = None
         self.prefix = self.getCorrectPrefix(prefix)
         self.linksToVisit = linksToVisit
         self.maxDistance = 0
@@ -132,6 +149,36 @@ class WebCrawler:
         self.numDuplicateLinks = 0
         self.map = {}
         self.externalLinks = []
+        self.farthestPathLinks = []
+        self.visitedURLs = []
+        self.traversalQueue = Queue.Queue()
+        self.upperLevelPages = []
+        self.largestDepth = 0
+        self.root = None
+
+
+    def getCorrectPrefix_temp(self, prefixGiven):
+        '''
+        @param prefixGiven: the prefix passed to __init__
+        @return: if no prefix was passed to __init__ then gets the search domain from the home page url, or else it returns the prefix given
+        @note: If a prefix includes http:// then it greatly reduces the number of crawl-able web pages.
+        @note: .com, .edu ... are not the only options however it is too hard to cut the string with a general case and this covers
+        a large portion of the web we want to deal with.
+        '''
+        if(not prefixGiven):
+            prefixGiven = self.homeURL
+            if(self.homeURL.find('http://') == 0):
+                prefixGiven = self.homeURL[7:]
+            elif(self.homeURL.find('https://') == 0):
+                prefixGiven = self.homeURL[8:]
+            
+            if(prefixGiven.find('/') != -1):
+                prefixGiven = prefixGiven[:prefixGiven.rfind('/')]
+                print
+                print 'prefix: ' + prefixGiven
+        return prefixGiven
+        
+        
     '''
         If a prefix is given, return the prefix.
         If no prefix is given, parse the domain as a prefix from URL being searched.
@@ -201,37 +248,41 @@ class WebCrawler:
         '''
         When first called crawl begins crawling recursively from the given home page
         '''
-        homePage = WebPage(self.homeURL, 0, '')
-        self.crawlURL(homePage, 0)
+        self.homePage = WebPage(self.homeURL, 0, '')
+        self.crawlURL(self.homePage, 0)
 
     def crawlURL(self, page, counter):
+#         print page.getURL()
+        
+        
         '''do not create a sub-map if the page is out of domain'''
-        if(page.getGivenURL().find(self.prefix) == -1):
+        if(page.getURL().find(self.prefix) == -1):
             return
         
         '''do not duplicate key'''
-        if(self.map.has_key(page.getGivenURL())):
+        if(self.map.has_key(page.getURL())):
             self.numDuplicateLinks += 1
         else:
             time.sleep(.5) #Courtesy
             listOfChildren = []
-            for i in range(len(page.getChildren())):
+            for i in range(len(page.getChildURLs())):
                 self.linksVisited += 1
                 if (self.linksVisited <= self.linksToVisit):
-                    childURL = self.fixGivenURL(page.getChildren()[i], page.getGivenURL())
+                    childURL = self.fixGivenURL(page.getChildURLs()[i], page.getURL())
                 else:
                     return
                 global externalWebPages
                 if(childURL):
                     if(self.isExternalURL(childURL)):
                         self.externalLinks.append(childURL)
-                    child = WebPage(childURL, counter + 1, page.getGivenURL())
-                    listOfChildren.append(child)
+                    childPage = WebPage(childURL, counter + 1, page.getURL())
+                    listOfChildren.append(childPage)
+                    page.addChildPage(childPage)
                     
-            self.map[page.getGivenURL()] = listOfChildren
+            self.map[page.getURL()] = listOfChildren
             for i in range(len(listOfChildren)):
                 if (self.linksToVisit - self.linksVisited > 0):
-                    self.crawlURL(self.map[page.getGivenURL()][i], counter + 1)
+                    self.crawlURL(self.map[page.getURL()][i], counter + 1)
                 else: 
                     return
            
@@ -243,6 +294,8 @@ class WebCrawler:
         '''
         return url.find(self.prefix[self.prefix.find('.') + 1:]) == -1
     
+    def isInSearchDirectory(self, url):
+        return (url.find(self.prefix) != -1)
     
     def getStrandedLinks(self):
         '''
@@ -251,7 +304,7 @@ class WebCrawler:
         stranded = True
         strandedLinks = []
         for key in self.map:
-             if(not isStrandedLink(key)):
+             if(not self.isStrandedLink(key)):
                  strandedLinks.append(key)
         return strandedLinks
     
@@ -262,55 +315,63 @@ class WebCrawler:
         @return: return true if the link does not have a link to the homepage and false if the link does have a link to the homepage
         '''
         for i in range(len(self.map[link])):
-                for j in range(len(self.map[link][i].getChildren())):
+                for j in range(len(self.map[link][i].getChildURLs())):
                     stranded = True
                     if(link == self.homeURL or key == self.homeURL + '/' or link + '/' == self.homeURL):
                         stranded = False
-                    elif(self.map[link][i].getChildren()[j] == self.homeURL or self.map[link][i].getChildren()[j] == self.homeURL + '/'):
-                        stranded = False  
+                    elif(self.map[link][i].getChildURLs()[j] == self.homeURL or self.map[link][i].getChildURLs()[j] == self.homeURL + '/'):
+                        stranded = False
         return stranded
        
     def getNumLinksCrawled(self):
         '''
         @return: the number of unique links crawled.
         '''
+
         return self.linksVisited - self.numDuplicateLinks
     
     def getMaxDistance(self):
         '''
         @return: the length of the longest searched path from the home page
         '''
-        return self.maxDistance
+#         print self.homePage.getChildURLs()
+        '''
+        @todo: fix this!!
+        '''
+        return self.largestDepth
     
-    def getMaxDistancePath(self):
-        '''
-        @todo: fix it
-        @return: a list of links that form the longest searched path from the home page to the farthest web page
-        @note: if there are multiple paths to a same page, we compare the shortest paths
-
-        '''
-        childrenList= self.map.values()
-        allLinks = []
+    def getFarthestPath(self):
+        currentDepth = self.homePage.getDepth()
+        currentPage = self.homePage
+        self.largestDepth = currentDepth
+        deepestPage = currentPage
         
-        #Extract all links from list of lists into a single list
-        for i in range(len(childrenList)):
-            for j in range(len(childrenList[i])):
-                allLinks.append(childrenList[i][j])
+        self.visitedURLs.append(self.homePage.getURL())
+        
+        self.traversalQueue.put(currentPage)
                 
-        paths = []
-        for i in range(len(allLinks)):
-            for j in range(len(allLinks)):
-                if(allLinks[j].getGivenURL() == allLinks[i].getGivenURL()):
-                    minDistance = min(allLinks[i].getDistanceFromHome(), allLinks[j].getDistanceFromHome())
-                    allLinks[j].setDistanceFromHome(minDistance)
-                    allLinks[i].setDistanceFromHome(minDistance)
-                    if(allLinks[i].getDistanceFromHome() > self.maxDistance):
-                        maxDistancePages = []
-                        maxDistancePages.append(allLinks[i].getGivenURL())
-                        self.maxDistance = allLinks[i].getDistanceFromHome()
-        return maxDistancePages
+        while(not self.traversalQueue.empty()):
+            currentPage = self.traversalQueue.get()
+            self.traversalQueue.task_done()
+            currentDepth = currentPage.getDepth()            
+            print 'current page: ' + currentPage.getURL()
+            for i in range(len(currentPage.getChildPages())):
+                nextPage = currentPage.getChildPages()[i]
+                if(nextPage.getURL() not in self.visitedURLs):
+                    self.visitedURLs.append(nextPage.getURL)
+                    nextPage.setParentPage(currentPage)
+                    nextPage.setDepth = currentDepth + 1
+                    if(currentDepth + 1 >= self.largestDepth):
+                        self.largestDepth = currentDepth + 1
+                        deepestPage = nextPage
+                    self.traversalQueue.put(nextPage)
 
-
+        cursor = deepestPage
+        self.farthestPathLinks.append(cursor.getURL())
+        while(cursor.getParentPage()):
+            self.farthestPathLinks.append(cursor.getParentPage().getURL())
+            cursor = cursor.getParentPage()
+        
     def getExternalLinks(self):
         '''
         @return: a list of links that are outside the searched domain
@@ -345,6 +406,8 @@ def main(arguments):
     else:
         printActionSummary(crawler)
         
+    print 'Exited normally'
+        
     
 def printBrokenLinks(crawler):
     '''
@@ -370,20 +433,30 @@ def printActionSummary(crawler):
     @param crawler: The crawler from which the report is to be printed
     @note: prints a list of outgoing links, the farthest page from home, the path to the farthest page, and a list of pages that can't get home
     '''
-    linksCantGetHome = crawler.getStrandedLinks()
+    #linksCantGetHome = crawler.getStrandedLinks()
     print 'Files Found: ' + str(crawler.getNumLinksCrawled())
     print 'External Files: '
     externalLinks = crawler.getExternalLinks()
     for i in range(len(externalLinks)):
         print externalLinks[i]
-    maxDistancePath =  crawler.getMaxDistancePath()
+    
+    
+    crawler.getFarthestPath()
     print 'Longest Path Depth: ' + str(crawler.getMaxDistance())
-    for i in range(len(maxDistancePath)):
-        print maxDistancePath[i]
-    print 'Can\'t Get Home: '
-    strandedLinks = crawler.getStrandedLinks()
-    for i in range(len(strandedLinks)):
-        print strandedLinks[i]
+            
+#     print "debug print:"
+#     print crawler.farthestPathLinks
+#     print "end debug print."
+    print
+    print 'Depth\tURL'
+    for i in range(len(crawler.farthestPathLinks)):
+        print str(len(crawler.farthestPathLinks)-i-1)+'\t'+ str(crawler.farthestPathLinks[i])
+        
+        
+#     print 'Can\'t Get Home: '
+#     strandedLinks = crawler.getStrandedLinks()
+#     for i in range(len(strandedLinks)):
+#         print strandedLinks[i]
 
 
 if __name__ == '__main__':
