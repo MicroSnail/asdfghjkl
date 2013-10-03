@@ -247,9 +247,15 @@ class WebCrawler:
         self.crawlURL(self.homePage, 0)
 
     def crawlURL(self, page, counter):
+        
+        print page.getURL()
+        
+        
         '''do not create a sub-map if the page is out of domain'''
         if(page.getURL().find(self.prefix) == -1):
             return
+        
+        
         
         '''do not duplicate key'''
         if(self.map.has_key(page.getURL())):
@@ -343,10 +349,10 @@ class WebCrawler:
         
         nextLevelPages = []     #delete this after completing the code, just for convenience
         nextLevelPages = startPage.getChildPages()
-        
-        print 'nextLevelPages:'
-        print len(nextLevelPages)
-        print
+#         
+#         print 'nextLevelPages:'
+#         print len(nextLevelPages)
+#         print
         
         if(not nextLevelPages):
             return [curDepth, [startPage]]
@@ -359,8 +365,8 @@ class WebCrawler:
             if (not self.isInSearchDirectory(nextStartPage.getURL())):
                 return [curDepth, startPage]
             
-            print 'visiting'
-            print nextStartPage.getURL()
+#             print 'visiting'
+#             print nextStartPage.getURL()
             
             '''If a page has no more page to visited and the only next child is visited'''
             if(not nextLevelPages and nextStartPage.getURL() in self.visitedURLs):
@@ -486,12 +492,13 @@ def printActionSummary(crawler):
     
     print 'Longest Path Depth: ' + str(crawler.getMaxDistance())
             
-    print "debug print:"
-    print crawler.farthestPathLinks
-    print "end debug print."
+#     print "debug print:"
+#     print crawler.farthestPathLinks
+#     print "end debug print."
+    print
     print 'Depth\tURL'
     for i in range(len(crawler.farthestPathLinks)):
-        print str(i)+'\t'+crawler.farthestPathLinks[i]
+        print str(len(crawler.farthestPathLinks) - i - 1)+'\t'+crawler.farthestPathLinks[i]
         
         
 #     print 'Can\'t Get Home: '
